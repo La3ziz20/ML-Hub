@@ -1,0 +1,37 @@
+# Gitignore for ML Hub React/Vite + FastAPI Full-stack
+
+# Dependencies
+node_modules/
+backend/venv/
+backend/env/
+
+# Python caching
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Databases & local experiment data
+# We ignore the heavy runtime sqlite binaries
+# But we DO NOT ignore cleaned_dataset.csv as it's the core demo dataset (~2MB).
+*.db
+*.sqlite
+backend/data/mlruns.db*
+backend/data/models/*.joblib
+mlruns/
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Vite Output
+frontend/dist/
+frontend/dist-ssr/
+frontend/.vite/
+
+# Editor 
+.vscode/
+.idea/
+.DS_Store

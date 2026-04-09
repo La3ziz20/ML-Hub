@@ -1,0 +1,76 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.13.2, pytest-8.3.5, pluggy-1.6.0 -- C:\Users\azizm\AppData\Local\Programs\Python\Python313\python.exe
+cachedir: .pytest_cache
+Test order randomisation NOT enabled. Enable with --random-order or --random-order-bucket=<bucket_type>
+rootdir: D:\USER\Desktop\dossier projet\backend
+plugins: anyio-4.9.0, cov-5.0.0, django-4.11.1, random-order-1.1.1
+collecting ... collected 3 items
+
+tests/test_api.py::test_read_main PASSED                                 [ 33%]
+tests/test_api.py::test_dataset_preview PASSED                           [ 66%]
+tests/test_api.py::test_train_model FAILED                               [100%]
+
+================================== FAILURES ===================================
+______________________________ test_train_model _______________________________
+
+    def test_train_model():
+        # Get columns
+        response = client.get("/dataset/")
+        target = response.json()["columns"][-1]
+    
+        # Trigger train
+        train_resp = client.post(
+            "/models/train",
+            json={"model_name": "LogisticRegression", "target_column": target, "hyperparameters": {}}
+        )
+        assert train_resp.status_code == 200
+        model_data = train_resp.json()
+        assert "id" in model_data
+        assert model_data["status"] == "pending"
+    
+        model_id = model_data["id"]
+    
+        # Wait for background task to complete
+        max_retries = 10
+        for _ in range(max_retries):
+            resp = client.get(f"/models/models/{model_id}")
+            assert resp.status_code == 200
+            status = resp.json()["status"]
+            if status in ["completed", "failed"]:
+                break
+            time.sleep(1)
+    
+        final_resp = client.get(f"/models/models/{model_id}")
+        final_data = final_resp.json()
+        if final_data["status"] == "failed":
+            print("Training Error:", final_data["error_message"])
+>       assert final_data["status"] == "completed"
+E       AssertionError: assert 'pending' == 'completed'
+E         
+E         - completed
+E         + pending
+
+tests\test_api.py:79: AssertionError
+============================== warnings summary ===============================
+app\main.py:31
+  D:\USER\Desktop\dossier projet\backend\app\main.py:31: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("startup")
+
+C:\Users\azizm\AppData\Local\Programs\Python\Python313\Lib\site-packages\fastapi\applications.py:4576
+  C:\Users\azizm\AppData\Local\Programs\Python\Python313\Lib\site-packages\fastapi\applications.py:4576: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_api.py::test_train_model - AssertionError: assert 'pending'...
+================== 1 failed, 2 passed, 2 warnings in 13.87s ===================
