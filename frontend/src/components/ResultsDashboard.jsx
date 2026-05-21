@@ -43,24 +43,14 @@ export default function ResultsDashboard({ experimentId, onBack }) {
 
   if (loading) return <div className="text-text-400 font-medium animate-pulse text-xl text-center mt-12">Loading results...</div>;
 
-  const metricsArray = data.metrics ? (
-    data.metrics.task_type === 'regression' ? [
-      { name: 'R² Score', value: data.metrics.r2, format: 'float' },
-      { name: 'RMSE', value: data.metrics.rmse, format: 'float' },
-      { name: 'MAE', value: data.metrics.mae, format: 'float' },
-      { name: 'MSE', value: data.metrics.mse, format: 'float' },
-    ] : [
-      { name: 'Accuracy', value: data.metrics.accuracy, format: 'percent' },
-      { name: 'Precision', value: data.metrics.precision, format: 'percent' },
-      { name: 'Recall', value: data.metrics.recall, format: 'percent' },
-      { name: 'F1 Score', value: data.metrics.f1_score, format: 'percent' },
-    ]
-  ) : [];
+  const metricsArray = data.metrics ? [
+    { name: 'R² Score', value: data.metrics.r2, format: 'float' },
+    { name: 'RMSE', value: data.metrics.rmse, format: 'float' },
+    { name: 'MAE', value: data.metrics.mae, format: 'float' },
+    { name: 'MSE', value: data.metrics.mse, format: 'float' },
+  ] : [];
 
-  const rocData = data.roc_curve ? data.roc_curve.fpr.map((fpr, i) => ({
-    fpr: fpr,
-    tpr: data.roc_curve.tpr[i]
-  })) : [];
+
 
   return (
     <motion.div 
@@ -129,67 +119,7 @@ export default function ResultsDashboard({ experimentId, onBack }) {
       )}
 
       <div className="grid xl:grid-cols-3 gap-4">
-        {data.confusion_matrix && (
-          <div className="modern-card p-4 flex flex-col">
-            <h3 className="text-xl font-semibold text-text-900 mb-6 flex items-center">
-              <BarChart2 className="mr-2 text-brand-500" />
-              Confusion Matrix
-            </h3>
-            <div className="grid gap-2">
-              {data.confusion_matrix.map((row, i) => (
-                <div key={i} className="flex gap-2">
-                  {row.map((val, j) => {
-                    const maxVal = Math.max(...data.confusion_matrix.flat());
-                    const opacity = Math.max(0.05, Math.min(1, val / maxVal));
-                    return (
-                      <div 
-                        key={j} 
-                        className="flex-1 aspect-square rounded-xl flex items-center justify-center font-bold text-xl transition-all hover:scale-105 border"
-                        style={{ 
-                          backgroundColor: `rgba(59, 130, 246, ${opacity * 0.8})`,
-                          color: opacity > 0.4 ? 'white' : '#1e3a8a',
-                          borderColor: opacity > 0.1 ? 'transparent' : '#e2e8f0'
-                        }}
-                        title={`True: Class ${i}, Predicted: Class ${j}`}
-                      >
-                        {val}
-                      </div>
-                    )
-                  })}
-                </div>
-              ))}
-              <div className="text-center text-text-400 text-xs mt-auto bg-surface-50 rounded px-2 py-1 border border-surface-200 uppercase tracking-widest mt-4">Row: True | Col: Pred</div>
-            </div>
-          </div>
-        )}
 
-        {data.roc_curve && (
-          <div className="modern-card p-4 flex flex-col">
-            <h3 className="text-sm uppercase tracking-wide font-bold text-text-900 mb-1 flex items-center">
-              <Activity size={16} className="mr-2 text-brand-500" />
-              ROC Curve
-            </h3>
-            <p className="text-text-500 text-xs mb-4">Area Under Curve: <span className="text-text-900 font-bold">{data.roc_curve.auc.toFixed(4)}</span></p>
-            <div className="flex-1 min-h-[250px] w-full mt-auto">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={rocData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                  <XAxis dataKey="fpr" type="number" domain={[0, 1]} stroke="#64748b" tick={{ fill: '#64748b', fontSize: 12 }} tickLine={false} />
-                  <YAxis type="number" domain={[0, 1]} stroke="#64748b" tick={{ fill: '#64748b', fontSize: 12 }} tickLine={false} />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', color: '#0f172a', borderRadius: '0.75rem', padding: '12px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}
-                    itemStyle={{ color: '#3b82f6', fontWeight: 'bold' }}
-                    labelStyle={{ color: '#64748b', marginBottom: '4px' }}
-                    formatter={(value) => [value.toFixed(4), "True Positive Rate"]}
-                    labelFormatter={(label) => `False Pos Rate: ${label.toFixed(4)}`}
-                  />
-                  <Line type="monotone" dataKey="tpr" stroke="#3b82f6" strokeWidth={3} dot={false} activeDot={{ r: 6, fill: '#ffffff', stroke: '#3b82f6', strokeWidth: 2 }} animationDuration={1000} />
-                  <Line type="monotone" data={[{fpr:0, tpr:0}, {fpr:1, tpr:1}]} dataKey="tpr" stroke="#94a3b8" strokeDasharray="5 5" strokeWidth={2} dot={false} activeDot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
 
         {data.metrics?.feature_importances && (
           <div className="modern-card p-4 flex flex-col">

@@ -18,7 +18,7 @@ def train_model(
     db: Session = Depends(get_db)
 ):
     # Validate model name
-    valid_models = ["RandomForest", "SVM", "KNN", "Linear/Logistic"]
+    valid_models = ["RandomForest", "SVM", "KNN", "Linear/Logistic", "AdaBoost", "XGBoost"]
     if request.model_name not in valid_models:
         raise HTTPException(status_code=400, detail=f"Invalid model name. Choose from {valid_models}")
     
@@ -109,6 +109,7 @@ def predict_with_model(model_id: int, request: PredictRequest, db: Session = Dep
         df = df[experiment.feature_columns]
         
         pred = model.predict(df)
+        prediction_value = pred[0].item() if hasattr(pred[0], "item") else pred[0]
         
         # Try to get probabilities
         prob = None
@@ -117,7 +118,7 @@ def predict_with_model(model_id: int, request: PredictRequest, db: Session = Dep
             prob = prob_arr.tolist()
             
         return {
-            "prediction": pred[0].item() if hasattr(pred[0], "item") else pred[0],
+            "prediction": prediction_value,
             "probabilities": prob
         }
     except Exception as e:

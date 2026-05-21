@@ -5,6 +5,7 @@ import ModelSelector from './components/ModelSelector';
 import Dashboard from './components/Dashboard';
 import ModelComparison from './components/ModelComparison';
 import MLflowHistory from './components/MLflowHistory';
+import DataDrift from './components/DataDrift';
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
           <Route path="experiments" element={<ModelSelector />} />
           <Route path="compare" element={<ModelComparison />} />
           <Route path="history" element={<MLflowHistory />} />
+          <Route path="drift" element={<DataDrift />} />
         </Route>
       </Routes>
     </BrowserRouter>

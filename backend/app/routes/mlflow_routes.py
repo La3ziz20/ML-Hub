@@ -7,6 +7,7 @@ router = APIRouter(prefix="/mlflow", tags=["MLFlow"])
 @router.get("/runs")
 def get_mlflow_runs():
     try:
+        mlflow.set_tracking_uri("sqlite:///./data/mlruns.db")
         experiment = mlflow.get_experiment_by_name("ml_platform_experiments")
         if not experiment:
             return {"runs": []}

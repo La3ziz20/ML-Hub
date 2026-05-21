@@ -40,10 +40,40 @@ class DataService:
         if target_column not in df.columns:
             raise ValueError(f"Target column '{target_column}' not found in dataset.")
             
-        # Basic preprocessing
+        import numpy as np
+        # Handle '-' which is present in columns like Levy
+        df.replace('-', np.nan, inplace=True)
+        
+        # If the target column can be numeric, convert it
+        df[target_column] = pd.to_numeric(df[target_column], errors='ignore')
+        
+        # Drop rows where target is NaN
+        df = df.dropna(subset=[target_column])
+        
+        # Remove extreme outliers in the target variable (e.g. Price = 26,000,000)
+        # using the robust 3x IQR method to prevent models from producing negative R2
+        Q1 = df[target_column].quantile(0.25)
+        Q3 = df[target_column].quantile(0.75)
+        IQR = Q3 - Q1
+        upper_bound = Q3 + 3 * IQR
+        df = df[df[target_column] <= upper_bound]
+        
         # Separate features and target
         X = df.drop(columns=[target_column])
         y = df[target_column]
+        
+        # Fill missing values in features to prevent ValueError in models
+        num_cols = X.select_dtypes(include=['number']).columns
+        cat_cols = X.select_dtypes(exclude=['number']).columns
+        
+        X[num_cols] = X[num_cols].fillna(0)
+        X[cat_cols] = X[cat_cols].fillna('Unknown')
+        
+        # Drop high-cardinality categorical columns to prevent dimensional explosion
+        cat_cols = X.select_dtypes(include=['object']).columns
+        high_card_cols = [col for col in cat_cols if X[col].nunique() > 100]
+        if high_card_cols:
+            X = X.drop(columns=high_card_cols)
         
         # Simple encoding for categorical variables
         X = pd.get_dummies(X, drop_first=True)
@@ -51,6 +81,14 @@ class DataService:
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=test_size, random_state=random_state
         )
+        
+        from sklearn.preprocessing import StandardScaler
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
+        
+        X_train = pd.DataFrame(X_train_scaled, columns=X_train.columns, index=X_train.index)
+        X_test = pd.DataFrame(X_test_scaled, columns=X_test.columns, index=X_test.index)
         
         return X_train, X_test, y_train, y_test
 

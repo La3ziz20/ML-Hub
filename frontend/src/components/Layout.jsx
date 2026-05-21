@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { Database, Activity, LayoutDashboard, Settings, BarChart2, Clock } from 'lucide-react';
+import { Database, Activity, LayoutDashboard, Settings, BarChart2, Clock, LineChart } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const navItems = [
@@ -8,6 +8,7 @@ const navItems = [
   { path: '/experiments', label: 'Train Model', icon: Activity },
   { path: '/history', label: 'Experiments', icon: Clock },
   { path: '/compare', label: 'Model Comparison', icon: BarChart2 },
+  { path: '/drift', label: 'Data Drift', icon: LineChart },
 ];
 
 export default function Layout() {

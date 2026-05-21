@@ -1,0 +1,1 @@
+{"drift_share": 0.5, "drifted_columns": 3, "total_columns": 18, "dataset_drifted": false, "status": "success", "message": "Drift > 30% detected! Automated retraining of RandomForest triggered in the background."}

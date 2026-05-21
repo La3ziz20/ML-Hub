@@ -9,3 +9,6 @@ joblib
 pytest
 httpx
 mlflow
+evidently
+scipy
+matplotlib

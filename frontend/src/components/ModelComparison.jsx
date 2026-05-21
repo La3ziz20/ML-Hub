@@ -10,21 +10,16 @@ export default function ModelComparison() {
 
   useEffect(() => {
     getMLflowRuns().then(res => {
-      const completed = (res.data.runs || []).filter(r => r.status === 'FINISHED' && r.metrics && (r.metrics.accuracy || r.metrics.r2));
+      // Only fetch regression runs (those with r2 metric)
+      const completed = (res.data.runs || []).filter(r => r.status === 'FINISHED' && r.metrics && r.metrics.r2 !== undefined);
       
       const mapped = completed.map(r => {
-         // Reconstruct the structure ModelComparison expects
-         const isClassification = r.metrics.accuracy !== undefined;
          return {
             id: r.run_id.substring(0, 8),
             raw_id: r.run_id,
             model_name: r.parameters?.algo || r.run_id.substring(0,6),
             metrics: {
-               task_type: isClassification ? 'classification' : 'regression',
-               accuracy: Number(r.metrics.accuracy),
-               f1_score: Number(r.metrics.f1_score),
-               precision: Number(r.metrics.precision),
-               recall: Number(r.metrics.recall),
+               task_type: 'regression',
                r2: Number(r.metrics.r2),
                rmse: Number(r.metrics.rmse),
                mse: Number(r.metrics.mse)
@@ -52,28 +47,40 @@ export default function ModelComparison() {
     </div>
   );
 
-  // Group models by classification vs regression
-  const classModels = models.filter(m => m.metrics.task_type === 'classification');
-  const regModels = models.filter(m => m.metrics.task_type === 'regression');
+  // All models are regression now
+  const regModels = models;
 
-  const renderComparisonSection = (title, mData, type) => {
+  const renderComparisonSection = (title, mData) => {
     if (mData.length === 0) return null;
 
     // determine metric to sort by to find "Best"
-    const sortMetric = type === 'classification' ? 'accuracy' : 'r2';
-    const sorted = [...mData].sort((a, b) => b.metrics[sortMetric] - a.metrics[sortMetric]);
+    const sorted = [...mData].sort((a, b) => b.metrics.r2 - a.metrics.r2);
     const bestModelId = sorted[0].id;
 
-    // Prepare data for recharts
-    const chartData = mData.map(m => {
-       const d = { name: `${m.model_name} (#${m.id})`, isBest: m.id === bestModelId };
-       if (type === 'classification') {
-          d.Accuracy = m.metrics.accuracy * 100;
-          d.F1_Score = m.metrics.f1_score * 100;
-       } else {
-          d.R2_Score = m.metrics.r2;
-          d.RMSE = m.metrics.rmse;
-       }
+    // Prepare data for recharts (Top 10 max to prevent clutter)
+    const topModels = sorted.slice(0, 10);
+    const displayNames = {
+        "RandomForest": "Random Forest Regressor",
+        "SVR": "Support Vector Regressor (SVR)",
+        "KNN": "K-Nearest Neighbors Regressor",
+        "Linear/Logistic": "Linear Regression",
+        "AdaBoost": "AdaBoost Regressor",
+        "XGBoost": "XGBoost Regressor"
+    };
+
+    const chartData = topModels.map(m => {
+       const mappedName = displayNames[m.model_name] || m.model_name;
+       const shortName = mappedName.replace(' Regressor', '').replace('Regression', '').replace(' (SVR)', '').trim();
+       const d = { 
+           name: `${shortName} #${m.id.substring(0,4)}`, 
+           full_name: `${mappedName} (#${m.id})`,
+           isBest: m.id === bestModelId 
+       };
+       // Visually clamp extreme negative R2 values so the chart isn't completely flattened,
+       // but keep the real value for the tooltip.
+       d.R2_Score = Math.max(-1, m.metrics.r2);
+       d.real_R2 = m.metrics.r2;
+       d.RMSE = m.metrics.rmse;
        return d;
     });
 
@@ -84,82 +91,76 @@ export default function ModelComparison() {
             {title}
          </h3>
 
-         <div className="grid xl:grid-cols-12 gap-4 mb-6">
-            <div className="modern-card p-4 xl:col-span-4 h-[350px] flex flex-col">
-               <h4 className="font-bold text-sm text-text-700 mb-2 uppercase tracking-wide">Performance Metrics Chart</h4>
+         <div className="flex flex-col gap-6 mb-6">
+            {/* Massive Full-Width Chart */}
+            <div className="modern-card p-6 w-full h-[450px] flex flex-col shadow-md">
+               <div className="flex items-center justify-between mb-4">
+                 <h4 className="font-bold text-base text-text-900 uppercase tracking-wider flex items-center">
+                    <Activity size={18} className="mr-2 text-brand-500" />
+                    Performance Metrics Chart
+                 </h4>
+               </div>
                <ResponsiveContainer width="100%" height="100%">
-                 <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 50 }}>
+                 <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                   <XAxis dataKey="name" stroke="#64748b" tick={{ fill: '#64748b', fontSize: 11 }} angle={-25} textAnchor="end" />
-                   <YAxis stroke="#64748b" tick={{ fill: '#64748b', fontSize: 12 }} />
+                   <XAxis dataKey="name" stroke="#64748b" tick={{ fill: '#64748b', fontSize: 12, fontWeight: 500 }} angle={-25} textAnchor="end" interval={0} height={70} dy={15} />
+                   <YAxis stroke="#64748b" tick={{ fill: '#64748b', fontSize: 13, fontWeight: 500 }} />
                    <Tooltip 
-                     cursor={{ fill: '#f8fafc' }} 
-                     contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '0.75rem', padding: '12px' }}
-                     formatter={(value) => (type === 'classification' ? value.toFixed(2) + '%' : value.toFixed(4))}
+                     cursor={{ fill: '#f1f5f9' }} 
+                     contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '1rem', padding: '16px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)' }}
+                     labelFormatter={(label, payload) => payload[0] ? payload[0].payload.full_name : label}
+                     formatter={(value, name, props) => props.payload.real_R2 !== undefined ? props.payload.real_R2.toFixed(4) : value.toFixed(4)}
                    />
-                   <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                   {type === 'classification' ? (
-                     <>
-                        <Bar dataKey="Accuracy" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="F1_Score" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                     </>
-                   ) : (
-                     <>
-                        <Bar dataKey="R2_Score" fill="#10b981" radius={[4, 4, 0, 0]} />
-                     </>
-                   )}
+                   <Legend verticalAlign="top" height={40} wrapperStyle={{ paddingBottom: '15px' }} iconType="circle" />
+                   <Bar dataKey="R2_Score" radius={[8, 8, 0, 0]} maxBarSize={80} animationDuration={1500}>
+                     {chartData.map((entry, index) => (
+                       <Cell key={`cell-${index}`} fill={entry.isBest ? '#10b981' : '#cbd5e1'} className="transition-all duration-300 hover:opacity-80" />
+                     ))}
+                   </Bar>
                  </BarChart>
                </ResponsiveContainer>
             </div>
 
-            <div className="modern-card overflow-hidden xl:col-span-8 flex flex-col">
-               <div className="p-3 bg-surface-50 border-b border-surface-200">
+            {/* Leaderboard */}
+            <div className="modern-card overflow-hidden w-full flex flex-col shadow-sm">
+               <div className="p-4 bg-surface-50 border-b border-surface-200 flex items-center">
+                  <Trophy size={18} className="mr-2 text-yellow-500" />
                   <h4 className="font-bold text-sm text-text-900 uppercase tracking-wide">Experiments Leaderboard</h4>
                </div>
-               <div className="overflow-x-auto overflow-y-auto flex-1 max-h-[300px]">
-                 <table className="w-full text-left text-xs whitespace-nowrap">
-                    <thead className="bg-surface-50 text-text-500 uppercase tracking-wider sticky top-0 z-10 border-b border-surface-200 shadow-sm">
+               <div className="overflow-x-auto overflow-y-auto max-h-[400px]">
+                 <table className="w-full text-left text-sm whitespace-nowrap">
+                    <thead className="bg-surface-100 text-text-500 uppercase tracking-wider sticky top-0 z-10 border-b border-surface-200 shadow-sm">
                         <tr>
-                          <th className="px-4 py-2 font-semibold">Model</th>
-                          {type === 'classification' ? (
-                             <>
-                               <th className="px-4 py-2 font-semibold text-right">Accuracy</th>
-                               <th className="px-4 py-2 font-semibold text-right">F1 Score</th>
-                               <th className="px-4 py-2 font-semibold text-right">Precision</th>
-                               <th className="px-4 py-2 font-semibold text-right">Recall</th>
-                             </>
-                          ) : (
-                             <>
-                               <th className="px-4 py-2 font-semibold text-right">R² Score</th>
-                               <th className="px-4 py-2 font-semibold text-right">RMSE</th>
-                               <th className="px-4 py-2 font-semibold text-right">MSE</th>
-                             </>
-                          )}
+                          <th className="px-6 py-3 font-semibold">Model</th>
+                          <th className="px-6 py-3 font-semibold text-right">R² Score</th>
+                          <th className="px-6 py-3 font-semibold text-right">RMSE</th>
+                          <th className="px-6 py-3 font-semibold text-right">MSE</th>
                        </tr>
                     </thead>
                     <tbody className="divide-y divide-surface-200 text-text-800">
-                       {sorted.map(m => (
-                          <tr key={m.id} className={`hover:bg-surface-50 transition-colors ${m.id === bestModelId ? 'bg-brand-50/30' : ''}`}>
-                             <td className="px-6 py-4 font-medium flex items-center">
-                                {m.id === bestModelId && <Trophy size={16} className="text-yellow-500 mr-2" />}
-                                {m.model_name} <span className="text-text-400 ml-2">#{m.id}</span>
+                       {sorted.map((m, index) => {
+                          const mappedName = displayNames[m.model_name] || m.model_name;
+                          return (
+                          <tr key={m.id} className={`hover:bg-surface-50 transition-colors ${m.id === bestModelId ? 'bg-brand-50/40' : ''}`}>
+                             <td className="px-6 py-4 font-medium">
+                                <div className="flex items-center">
+                                    {m.id === bestModelId ? (
+                                        <span className="bg-yellow-100 text-yellow-700 px-2.5 py-1 rounded-full text-xs font-bold mr-3 border border-yellow-200 flex items-center shrink-0">
+                                           #1 Winner
+                                        </span>
+                                    ) : (
+                                        <span className="text-text-400 font-bold w-10 shrink-0">#{index + 1}</span>
+                                    )}
+                                    <span className={`truncate ${m.id === bestModelId ? 'text-brand-900 font-bold' : ''}`}>{mappedName}</span> 
+                                    <span className="text-text-400 ml-2 text-xs shrink-0">#{m.id}</span>
+                                </div>
                              </td>
-                             {type === 'classification' ? (
-                                 <>
-                                  <td className={`px-4 py-2 text-right ${m.id === bestModelId ? 'font-bold text-brand-700' : ''}`}>{(m.metrics.accuracy * 100).toFixed(2)}%</td>
-                                  <td className="px-4 py-2 text-right text-text-600">{(m.metrics.f1_score * 100).toFixed(2)}%</td>
-                                  <td className="px-4 py-2 text-right text-text-600">{(m.metrics.precision * 100).toFixed(2)}%</td>
-                                  <td className="px-4 py-2 text-right text-text-600">{(m.metrics.recall * 100).toFixed(2)}%</td>
-                                </>
-                             ) : (
-                                <>
-                                  <td className={`px-4 py-2 text-right ${m.id === bestModelId ? 'font-bold text-brand-700' : ''}`}>{m.metrics.r2.toFixed(4)}</td>
-                                  <td className="px-4 py-2 text-right text-text-600">{m.metrics.rmse.toFixed(4)}</td>
-                                  <td className="px-4 py-2 text-right text-text-600">{m.metrics.mse.toFixed(4)}</td>
-                                </>
-                             )}
+                             <td className={`px-6 py-4 text-right ${m.id === bestModelId ? 'font-bold text-brand-700 text-base' : ''}`}>{m.metrics.r2.toFixed(4)}</td>
+                             <td className="px-6 py-4 text-right text-text-600">{m.metrics.rmse.toFixed(4)}</td>
+                             <td className="px-6 py-4 text-right text-text-600">{m.metrics.mse.toFixed(4)}</td>
                           </tr>
-                       ))}
+                          );
+                       })}
                     </tbody>
                  </table>
                </div>
@@ -176,8 +177,7 @@ export default function ModelComparison() {
         <p className="text-text-500 text-sm">Benchmark your completed models and identify the best performer.</p>
       </div>
       
-      {renderComparisonSection('Classification Models', classModels, 'classification')}
-      {renderComparisonSection('Regression Models', regModels, 'regression')}
+      {renderComparisonSection('Regression Models', regModels)}
       
     </motion.div>
   );

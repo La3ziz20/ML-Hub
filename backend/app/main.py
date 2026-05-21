@@ -3,7 +3,7 @@ import shutil
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.models.database import Base, engine
-from app.routes import dataset_routes, ml_routes, mlflow_routes
+from app.routes import dataset_routes, ml_routes, mlflow_routes, drift_routes
 
 # Create DB Tables
 Base.metadata.create_all(bind=engine)
@@ -11,16 +11,10 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(title="ML Platform API")
 
 # Configure CORS
-origins = [
-    "http://localhost",
-    "http://localhost:5173", # Vite dev server
-    "http://localhost:5174", # Vite dev server overflow port
-    "http://localhost:3000",
-]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -28,6 +22,7 @@ app.add_middleware(
 app.include_router(dataset_routes.router)
 app.include_router(ml_routes.router)
 app.include_router(mlflow_routes.router)
+app.include_router(drift_routes.router)
 
 # Ensure the dataset exists where we expect it
 @app.on_event("startup")

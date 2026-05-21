@@ -5,10 +5,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import ResultsDashboard from './ResultsDashboard';
 
 const MODELS = [
-  { id: 'RandomForest', name: 'Random Forest', type: 'Ensemble' },
-  { id: 'SVM', name: 'Support Vector Machine/SVR', type: 'Linear/Non-Linear' },
-  { id: 'KNN', name: 'K-Nearest Neighbors', type: 'Distance' },
-  { id: 'Linear/Logistic', name: 'Linear / Logistic Regression', type: 'Linear' },
+  { id: 'RandomForest', name: 'Random Forest Regressor', type: 'Ensemble' },
+  { id: 'SVM', name: 'Support Vector Regressor (SVR)', type: 'Linear/Non-Linear' },
+  { id: 'KNN', name: 'K-Nearest Neighbors Regressor', type: 'Distance' },
+  { id: 'Linear/Logistic', name: 'Linear Regression', type: 'Linear' },
+  { id: 'AdaBoost', name: 'AdaBoost Regressor', type: 'Ensemble' },
+  { id: 'XGBoost', name: 'XGBoost Regressor', type: 'Gradient Boosting' },
 ];
 
 export default function ModelSelector() {
@@ -25,9 +27,8 @@ export default function ModelSelector() {
   useEffect(() => {
     getDatasetPreview().then(res => {
       setColumns(res.data.columns);
-      if (res.data.columns && res.data.columns.length > 0) {
-        setTarget(res.data.columns[res.data.columns.length - 1]);
-      }
+      // Hardcode target to Price for regression
+      setTarget('Price');
     });
     fetchExperiments();
   }, []);
@@ -37,12 +38,25 @@ export default function ModelSelector() {
     if (selectedModel === 'RandomForest') setHyperparams({ n_estimators: 100 });
     else if (selectedModel === 'SVM') setHyperparams({ C: 1.0, kernel: 'rbf' });
     else if (selectedModel === 'KNN') setHyperparams({ n_neighbors: 5 });
+    else if (selectedModel === 'AdaBoost') setHyperparams({ n_estimators: 50 });
+    else if (selectedModel === 'XGBoost') setHyperparams({ n_estimators: 100, learning_rate: 0.1 });
     else setHyperparams({});
   }, [selectedModel]);
 
   const fetchExperiments = () => {
     getModels().then(res => setExperiments(res.data));
   };
+
+  // Poll for experiment updates if any are running/pending
+  useEffect(() => {
+    const hasActive = experiments.some(exp => exp.status === 'pending' || exp.status === 'running');
+    if (hasActive) {
+      const interval = setInterval(() => {
+        fetchExperiments();
+      }, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [experiments]);
 
   const handleTrain = async () => {
     setTraining(true);
@@ -90,13 +104,9 @@ export default function ModelSelector() {
           <div className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-text-600 mb-2">Target Variable</label>
-              <select 
-                value={target}
-                onChange={(e) => setTarget(e.target.value)}
-                className="w-full bg-surface-50 border border-surface-300 rounded-xl px-4 py-3 text-text-900 shadow-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 focus:outline-none transition-shadow"
-              >
-                {columns.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <div className="w-full bg-surface-100 border border-surface-300 rounded-xl px-4 py-3 text-text-900 shadow-sm font-semibold opacity-80 cursor-not-allowed">
+                Price (Regression)
+              </div>
             </div>
             
             {Object.keys(hyperparams).length > 0 && (
@@ -132,6 +142,24 @@ export default function ModelSelector() {
                       <label className="block text-xs font-semibold text-text-500 mb-1">N Neighbors</label>
                       <input type="number" min="1" max="50" value={hyperparams.n_neighbors || 5} onChange={e => setHyperparams({...hyperparams, n_neighbors: parseInt(e.target.value)})} className="w-full border border-surface-300 rounded-lg px-3 py-2 text-sm focus:border-brand-500 outline-none" />
                     </div>
+                  )}
+                  {selectedModel === 'AdaBoost' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-text-500 mb-1">N Estimators</label>
+                      <input type="number" min="10" max="1000" value={hyperparams.n_estimators || 50} onChange={e => setHyperparams({...hyperparams, n_estimators: parseInt(e.target.value)})} className="w-full border border-surface-300 rounded-lg px-3 py-2 text-sm focus:border-brand-500 outline-none" />
+                    </div>
+                  )}
+                  {selectedModel === 'XGBoost' && (
+                    <>
+                      <div>
+                        <label className="block text-xs font-semibold text-text-500 mb-1">N Estimators</label>
+                        <input type="number" min="10" max="1000" value={hyperparams.n_estimators || 100} onChange={e => setHyperparams({...hyperparams, n_estimators: parseInt(e.target.value)})} className="w-full border border-surface-300 rounded-lg px-3 py-2 text-sm focus:border-brand-500 outline-none" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-text-500 mb-1">Learning Rate</label>
+                        <input type="number" step="0.01" min="0.01" max="1.0" value={hyperparams.learning_rate || 0.1} onChange={e => setHyperparams({...hyperparams, learning_rate: parseFloat(e.target.value)})} className="w-full border border-surface-300 rounded-lg px-3 py-2 text-sm focus:border-brand-500 outline-none" />
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
@@ -219,29 +247,14 @@ export default function ModelSelector() {
                 
                 {exp.status === 'completed' && exp.metrics && (
                   <div className="grid grid-cols-2 gap-4 mt-6 pt-4 border-t border-surface-200">
-                    {exp.metrics.task_type === 'regression' ? (
-                      <>
-                        <div>
-                          <div className="text-xs text-text-500 font-semibold mb-1">R² Score</div>
-                          <div className="text-lg font-bold text-text-900">{Number(exp.metrics.r2).toFixed(4)}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-text-500 font-semibold mb-1">RMSE</div>
-                          <div className="text-lg font-bold text-text-900">{Number(exp.metrics.rmse).toFixed(4)}</div>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div>
-                          <div className="text-xs text-text-500 font-semibold mb-1">Accuracy</div>
-                          <div className="text-lg font-bold text-text-900">{(exp.metrics?.accuracy * 100 || 0).toFixed(2)}%</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-text-500 font-semibold mb-1">F1 Score</div>
-                          <div className="text-lg font-bold text-text-900">{(exp.metrics?.f1_score * 100 || 0).toFixed(2)}%</div>
-                        </div>
-                      </>
-                    )}
+                    <div>
+                      <div className="text-xs text-text-500 font-semibold mb-1">R² Score</div>
+                      <div className="text-lg font-bold text-text-900">{Number(exp.metrics.r2).toFixed(4)}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-text-500 font-semibold mb-1">RMSE</div>
+                      <div className="text-lg font-bold text-text-900">{Number(exp.metrics.rmse).toFixed(4)}</div>
+                    </div>
                   </div>
                 )}
                 {exp.status === 'failed' && (

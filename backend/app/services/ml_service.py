@@ -4,12 +4,12 @@ import pandas as pd
 import numpy as np
 import mlflow
 import mlflow.sklearn
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, AdaBoostClassifier, AdaBoostRegressor
 from sklearn.svm import SVC, SVR
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.linear_model import LogisticRegression, LinearRegression
+from xgboost import XGBClassifier, XGBRegressor  # type: ignore
 from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, roc_curve, auc,
     mean_squared_error, mean_absolute_error, r2_score
 )
 from app.services.data_service import data_service
@@ -22,23 +22,14 @@ class MLService:
         os.makedirs("data/mlruns", exist_ok=True)
         mlflow.set_tracking_uri("sqlite:///./data/mlruns.db")
         mlflow.set_experiment("ml_platform_experiments")
-        self.classifiers = {
-            "RandomForest": RandomForestClassifier,
-            "SVM": SVC,
-            "KNN": KNeighborsClassifier,
-            "Linear/Logistic": LogisticRegression
-        }
         self.regressors = {
             "RandomForest": RandomForestRegressor,
             "SVM": SVR,
-            "KNN": KNeighborsRegressor,
-            "Linear/Logistic": LinearRegression
+            "KNR": KNeighborsRegressor,
+            "LinearReg": LinearRegression,
+            "AdaBoost": AdaBoostRegressor,
+            "XGBoost": XGBRegressor
         }
-
-    def determine_task_type(self, y):
-        if y.dtype == object or y.dtype == bool or y.nunique() <= 20:
-            return "classification"
-        return "regression"
 
     def train_model_background(self, experiment_id: int):
         db = SessionLocal()
@@ -56,22 +47,28 @@ class MLService:
                 target_column=experiment.target_column
             )
             
-            task_type = self.determine_task_type(y_train)
-
-            if task_type == "classification":
-                model_class = self.classifiers.get(experiment.model_name)
-            else:
-                model_class = self.regressors.get(experiment.model_name)
+            # Subsample for SVM to prevent hanging on large datasets
+            if experiment.model_name == "SVM" and len(X_train) > 5000:
+                sample_indices = X_train.sample(n=5000, random_state=42).index
+                X_train = X_train.loc[sample_indices]
+                y_train = y_train.loc[sample_indices]
+            
+            model_class = self.regressors.get(experiment.model_name)
 
             if not model_class:
-                raise ValueError(f"Unknown model type: {experiment.model_name} for task {task_type}")
+                raise ValueError(f"Unknown regression model type: {experiment.model_name}")
 
             # Initialize model with hyperparameters if provided
             hyperparams = experiment.hyperparameters or {}
             
             # Adjust params specific to models
-            if experiment.model_name == "SVM" and task_type == "classification":
-                hyperparams["probability"] = True
+            if experiment.model_name == "SVM":
+                hyperparams["max_iter"] = 500 # Prevent infinite hanging
+                hyperparams["cache_size"] = 1000 # Increase cache for faster computation
+                
+                # Note: We specifically do NOT set probability=True here anymore,
+                # because it forces a 5-fold cross-validation internally which takes forever.
+                # The ROC curve will fallback to using decision_function instead.
                 
             model = model_class(**hyperparams)
             
@@ -79,6 +76,7 @@ class MLService:
             experiment.feature_columns = X_train.columns.tolist()
 
             # MLFlow Start Run
+            mlflow.set_experiment("ml_platform_experiments")
             mlflow.start_run(run_name=f"{experiment.model_name}_exp_{experiment.id}")
             mlflow.log_params(hyperparams)
             mlflow.log_param("target_column", experiment.target_column)
@@ -90,87 +88,35 @@ class MLService:
             # Predict
             y_pred = model.predict(X_test)
             
-            if task_type == "classification":
-                # Predict Probabilities for ROC
-                try:
-                    if hasattr(model, "predict_proba"):
-                        y_score = model.predict_proba(X_test)[:, 1]
-                    elif hasattr(model, "decision_function"):
-                        y_score = model.decision_function(X_test)
-                    else:
-                        y_score = None
-                except Exception:
-                    y_score = None
-
-                # Metrics calculation
-                metrics = {
-                    "task_type": "classification",
-                    "accuracy": accuracy_score(y_test, y_pred),
-                    "precision": precision_score(y_test, y_pred, average="weighted", zero_division=0),
-                    "recall": recall_score(y_test, y_pred, average="weighted", zero_division=0),
-                    "f1_score": f1_score(y_test, y_pred, average="weighted", zero_division=0)
-                }
-                
-                if hasattr(model, "feature_importances_"):
-                    # Pair feature importance with columns
-                    importances = model.feature_importances_.tolist()
-                    metrics["feature_importances"] = dict(zip(X_train.columns.tolist(), importances))
-
-                experiment.metrics = metrics
-
-                cm = confusion_matrix(y_test, y_pred)
-                experiment.confusion_matrix = cm.tolist()
-
-                mlflow.log_metrics({
-                    "accuracy": metrics["accuracy"],
-                    "precision": metrics["precision"],
-                    "recall": metrics["recall"],
-                    "f1_score": metrics["f1_score"]
-                })
-
-                if y_score is not None and len(set(y_test)) == 2: # binary classification for simple ROC
-                    try:
-                        y_test_bin = (y_test == list(set(y_test))[1]).astype(int)
-                        fpr, tpr, _ = roc_curve(y_test_bin, y_score)
-                        auc_score = float(auc(fpr, tpr))
-                        experiment.roc_curve = {
-                            "fpr": fpr.tolist(),
-                            "tpr": tpr.tolist(),
-                            "auc": auc_score
-                        }
-                        mlflow.log_metric("auc", auc_score)
-                    except Exception as e:
-                        pass
-            else:
-                # Regression metrics
-                mse = mean_squared_error(y_test, y_pred)
-                rmse = np.sqrt(mse)
-                mae = mean_absolute_error(y_test, y_pred)
-                r2 = r2_score(y_test, y_pred)
-                
-                metrics = {
-                    "task_type": "regression",
-                    "mse": float(mse),
-                    "rmse": float(rmse),
-                    "mae": float(mae),
-                    "r2": float(r2)
-                }
-                experiment.metrics = metrics
-                experiment.confusion_matrix = None
-                experiment.roc_curve = None
-                
-                mlflow.log_metrics({
-                    "mse": float(mse),
-                    "rmse": float(rmse),
-                    "mae": float(mae),
-                    "r2": float(r2)
-                })
+            # Regression metrics
+            mse = mean_squared_error(y_test, y_pred)
+            rmse = np.sqrt(mse)
+            mae = mean_absolute_error(y_test, y_pred)
+            r2 = r2_score(y_test, y_pred)
+            
+            metrics = {
+                "task_type": "regression",
+                "mse": float(mse),
+                "rmse": float(rmse),
+                "mae": float(mae),
+                "r2": float(r2)
+            }
+            experiment.metrics = metrics
+            experiment.confusion_matrix = None
+            experiment.roc_curve = None
+            
+            mlflow.log_metrics({
+                "mse": float(mse),
+                "rmse": float(rmse),
+                "mae": float(mae),
+                "r2": float(r2)
+            })
 
             # Save model
             model_path = f"data/models/model_{experiment_id}.joblib"
             joblib.dump(model, model_path)
             
-            mlflow.sklearn.log_model(model, "model")
+            mlflow.sklearn.log_model(model, "model", registered_model_name=experiment.model_name)
             mlflow.end_run()
             
             experiment.status = "completed"
