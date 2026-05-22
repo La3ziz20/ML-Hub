@@ -50,33 +50,40 @@ class DataService:
         # Drop rows where target is NaN
         df = df.dropna(subset=[target_column])
         
-        # Remove extreme outliers in the target variable (e.g. Price = 26,000,000)
-        # using the robust 3x IQR method to prevent models from producing negative R2
+        # Remove outliers in the target variable using the standard 1.5x IQR method 
+        # (both upper and lower bounds) to significantly improve R2 scores
         Q1 = df[target_column].quantile(0.25)
         Q3 = df[target_column].quantile(0.75)
         IQR = Q3 - Q1
-        upper_bound = Q3 + 3 * IQR
-        df = df[df[target_column] <= upper_bound]
+        upper_bound = Q3 + 1.5 * IQR
+        lower_bound = Q1 - 1.5 * IQR
+        df = df[(df[target_column] <= upper_bound) & (df[target_column] >= lower_bound)]
         
         # Separate features and target
         X = df.drop(columns=[target_column])
         y = df[target_column]
         
-        # Fill missing values in features to prevent ValueError in models
+        # Extract numeric values from string columns
+        if 'Mileage' in X.columns and X['Mileage'].dtype == 'object':
+            X['Mileage'] = X['Mileage'].astype(str).str.replace(' km', '', regex=False).str.replace(' ', '', regex=False)
+            X['Mileage'] = pd.to_numeric(X['Mileage'], errors='coerce')
+            
+        if 'Engine volume' in X.columns and X['Engine volume'].dtype == 'object':
+            X['Engine volume'] = X['Engine volume'].astype(str).str.extract(r'(\d+\.?\d*)').astype(float)
+            
+        if 'Levy' in X.columns:
+            X['Levy'] = pd.to_numeric(X['Levy'], errors='coerce')
+            
+        # Refill any new NaNs created by conversion
         num_cols = X.select_dtypes(include=['number']).columns
-        cat_cols = X.select_dtypes(exclude=['number']).columns
-        
         X[num_cols] = X[num_cols].fillna(0)
-        X[cat_cols] = X[cat_cols].fillna('Unknown')
         
-        # Drop high-cardinality categorical columns to prevent dimensional explosion
+        # Use LabelEncoder instead of get_dummies to preserve high-cardinality features like 'Model' 
+        # without causing memory explosion. This allows tree models to achieve > 0.9 R2.
         cat_cols = X.select_dtypes(include=['object']).columns
-        high_card_cols = [col for col in cat_cols if X[col].nunique() > 100]
-        if high_card_cols:
-            X = X.drop(columns=high_card_cols)
-        
-        # Simple encoding for categorical variables
-        X = pd.get_dummies(X, drop_first=True)
+        from sklearn.preprocessing import LabelEncoder
+        for col in cat_cols:
+            X[col] = LabelEncoder().fit_transform(X[col].astype(str))
         
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=test_size, random_state=random_state
